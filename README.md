@@ -15,6 +15,7 @@ It is built for shell workflows, scripts, prompts, and repo debugging, with supp
 - JSON output
 - custom format strings
 - relative-path selection
+- parent/submodule path field extraction
 - built-in Bash and Zsh completion generation
 
 ---
@@ -28,6 +29,12 @@ It is built for shell workflows, scripts, prompts, and repo debugging, with supp
   - the immediate parent repo
   - the outermost parent repo
   - the current repo
+- Print path components for the outermost parent repo and current submodule repo:
+  - parent dirname
+  - parent basename
+  - submodule prefix
+  - submodule basename
+  - current working directory prefix inside the submodule
 - Pretty-print `$HOME` as `~` by default
 - Output JSON for scripting
 - Output custom formatted strings with tokens
@@ -116,73 +123,34 @@ gitsub --path-outermost
 Given this layout:
 
 ```text
-~/src/mainrepo
-~/src/mainrepo/vendor/libA
-~/src/mainrepo/vendor/libA/ext/libB
+~/parent_root/parent_prefix/path/submodule_repo_toplevel/subprefix/path/current
 ```
 
 Assume:
 
-- `mainrepo` tracks `vendor/libA` as a submodule
-- `libA` tracks `ext/libB` as a submodule
-
-If your current directory is anywhere inside:
-
-```text
-~/src/mainrepo/vendor/libA/ext/libB
-```
+- `parent_root` is the outermost parent repo
+- `submodule_repo_toplevel` is the current submodule repo root
+- `current` is your current working directory inside the submodule
 
 Then:
 
 ```bash
-gitsub
+gitsub -f '%D / %M / %G / %B / %W'
 ```
 
 returns:
 
 ```text
-yes
+~ / parent_root / parent_prefix/path / submodule_repo_toplevel / subprefix/path/current
 ```
 
-```bash
-gitsub --parent
-```
+Meaning:
 
-returns:
-
-```text
-~/src/mainrepo/vendor/libA
-```
-
-```bash
-gitsub --outermost
-```
-
-returns:
-
-```text
-~/src/mainrepo
-```
-
-```bash
-gitsub --path
-```
-
-returns:
-
-```text
-ext/libB
-```
-
-```bash
-gitsub --path-outermost
-```
-
-returns:
-
-```text
-vendor/libA/ext/libB
-```
+- `%D` → dirname of outermost parent repo root
+- `%M` → basename of outermost parent repo root
+- `%G` → path to, but not including, the submodule basename
+- `%B` → basename of current submodule repo root
+- `%W` → path from current submodule root to `$PWD`
 
 ---
 
@@ -271,14 +239,18 @@ Example output:
 ```json
 {
   "is_submodule": true,
-  "current": "~/src/mainrepo/vendor/libA/ext/libB",
-  "parent": "~/src/mainrepo/vendor/libA",
-  "outermost": "~/src/mainrepo",
-  "path": "ext/libB",
-  "path_parent": "ext/libB",
-  "path_outermost": "vendor/libA/ext/libB",
-  "relative_to": "parent",
-  "name": "libB"
+  "current": "~/parent_root/parent_prefix/path/submodule_repo_toplevel",
+  "parent": "~/parent_root/parent_prefix/path",
+  "outermost": "~/parent_root",
+  "parent_dirname": "~",
+  "parent_basename": "parent_root",
+  "submodule_prefix": "parent_prefix/path",
+  "submodule_basename": "submodule_repo_toplevel",
+  "cwd_prefix": "subprefix/path/current",
+  "path": "submodule_repo_toplevel",
+  "path_parent": "submodule_repo_toplevel",
+  "path_outermost": "parent_prefix/path/submodule_repo_toplevel",
+  "relative_to": "parent"
 }
 ```
 
@@ -357,6 +329,74 @@ gitsub -O
 
 ---
 
+## Parent and submodule path fields
+
+These flags expose the exact pieces from your nested layout.
+
+### Parent dirname
+
+```bash
+gitsub --parent-dirname
+```
+
+Example output:
+
+```text
+~
+```
+
+### Parent basename
+
+```bash
+gitsub --parent-basename
+```
+
+Example output:
+
+```text
+parent_root
+```
+
+### Submodule prefix
+
+Path from the outermost parent repo root to, but not including, the current submodule basename.
+
+```bash
+gitsub --submodule-prefix
+```
+
+Example output:
+
+```text
+parent_prefix/path
+```
+
+### Submodule basename
+
+```bash
+gitsub --submodule-basename
+```
+
+Example output:
+
+```text
+submodule_repo_toplevel
+```
+
+### Current working directory prefix inside the submodule
+
+```bash
+gitsub --cwd-prefix
+```
+
+Example output:
+
+```text
+subprefix/path/current
+```
+
+---
+
 ## Format strings
 
 `gitsub` supports custom formatted output using `--format`.
@@ -364,19 +404,13 @@ gitsub -O
 Example:
 
 ```bash
-gitsub --format '%N: %S -> %P'
+gitsub --format '%D / %M / %G / %B / %W'
 ```
 
 Possible output:
 
 ```text
-libB: ext/libB -> ~/src/mainrepo/vendor/libA
-```
-
-Using outermost-relative mode:
-
-```bash
-gitsub --relative-to outermost --format '%N: %S -> %O'
+~ / parent_root / parent_prefix/path / submodule_repo_toplevel / subprefix/path/current
 ```
 
 ### Format tokens
@@ -387,14 +421,18 @@ gitsub --relative-to outermost --format '%N: %S -> %O'
 | `%O` | Outermost parent repository root |
 | `%S` | Path relative to the reference selected by `--relative-to` |
 | `%T` | Path relative to the outermost parent repository |
-| `%C` | Current repository root |
-| `%N` | Basename of the current repository root |
+| `%C` | Current submodule repository root |
+| `%D` | Dirname of outermost parent repository root |
+| `%M` | Basename of outermost parent repository root |
+| `%G` | Path from outermost parent root to, but not including, the submodule root basename |
+| `%B` | Basename of current submodule repository root |
+| `%W` | Path from current submodule root to `$PWD` |
 | `%%` | Literal percent sign |
 
 Example:
 
 ```bash
-gitsub -f 'name=%N parent=%P outermost=%O path=%S outer=%T'
+gitsub -f 'parent=%O dirname=%D base=%M prefix=%G submodule=%B cwd=%W'
 ```
 
 ---
@@ -427,12 +465,6 @@ Print current repo root:
 gitsub --current
 ```
 
-Print current repo name:
-
-```bash
-gitsub --name
-```
-
 Print immediate parent:
 
 ```bash
@@ -457,18 +489,30 @@ Print path relative to outermost parent:
 gitsub --path-outermost
 ```
 
-Select `--path` behavior:
+Print parent dirname and basename:
 
 ```bash
-gitsub --path --relative-to parent
-gitsub --path --relative-to outermost
-gitsub --path --relative-to current
+gitsub --parent-dirname
+gitsub --parent-basename
+```
+
+Print submodule prefix and basename:
+
+```bash
+gitsub --submodule-prefix
+gitsub --submodule-basename
+```
+
+Print current working directory prefix inside submodule:
+
+```bash
+gitsub --cwd-prefix
 ```
 
 Custom format:
 
 ```bash
-gitsub -f '%N | %S | %P'
+gitsub -f '%D / %M / %G / %B / %W'
 ```
 
 JSON with outermost-relative selection:
@@ -539,8 +583,12 @@ compinit
 | `--path-parent` | Print path relative to the immediate parent repository |
 | `-O`, `--path-outermost` | Print path relative to the outermost parent repository |
 | `--relative-to parent\|outermost\|current` | Select how `--path` and `%S` are resolved |
-| `-c`, `--current` | Print the current repository root |
-| `-n`, `--name` | Print the basename of the current repository root |
+| `-c`, `--current` | Print the current submodule repository root |
+| `--parent-dirname` | Print dirname of outermost parent repository root |
+| `--parent-basename` | Print basename of outermost parent repository root |
+| `--submodule-prefix` | Print path to but not including submodule basename |
+| `--submodule-basename` | Print basename of current submodule repository root |
+| `--cwd-prefix` | Print path from submodule root to current directory |
 | `-j`, `--json` | Print JSON output |
 | `-f`, `--format FORMAT` | Print custom formatted output |
 | `--completion bash\|zsh` | Print shell completion script |
